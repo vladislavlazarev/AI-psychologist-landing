@@ -1,5 +1,9 @@
 import { useState } from "react";
 
+/* ─── Supabase ─── */
+const SUPA_URL = "https://noqrdiaphmqxliwfwmka.supabase.co";
+const SUPA_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5vcXJkaWFwaG1xeGxpd2Z3bWthIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIyOTk0MDEsImV4cCI6MjA4Nzg3NTQwMX0.pCmMyJwzNVRBttrLbHNQfXkJls3kZo4sVXkaOFypLzY";
+
 /* ─── Analytics helpers ─── */
 function track(event, params = {}) {
   if (window.gtag) window.gtag("event", event, params);
@@ -8,11 +12,26 @@ function track(event, params = {}) {
 }
 
 /* ─── Waitlist Modal ─── */
-function Modal({ open, onClose }) {
+function Modal({ open, onClose, source }) {
   const [email, setEmail] = useState("");
   const [done, setDone] = useState(false);
   if (!open) return null;
-  const submit = () => { track("waitlist_signup", { label: "email" }); setDone(true); };
+  const submit = async () => {
+    if (!email.includes("@")) return;
+    setDone(true);
+    track("waitlist_signup", { label: "email" });
+    const utm = new URLSearchParams(window.location.search).get("utm_content") || "";
+    await fetch(`${SUPA_URL}/rest/v1/waitlist`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        apikey: SUPA_KEY,
+        Authorization: `Bearer ${SUPA_KEY}`,
+        Prefer: "return=minimal",
+      },
+      body: JSON.stringify({ email, source, utm_content: utm }),
+    }).catch(() => {});
+  };
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal" onClick={e => e.stopPropagation()}>
@@ -269,7 +288,7 @@ export default function App() {
       }
     `}</style>
 
-    <Modal open={!!modal} onClose={() => setModal(null)} />
+    <Modal open={!!modal} source={modal} onClose={() => setModal(null)} />
 
     <div className="wrap">
       {/* NAV */}
