@@ -1,25 +1,27 @@
 import { useState } from "react";
+import { usePostHog } from "@posthog/react";
 
 /* ─── Supabase ─── */
 const SUPA_URL = "https://noqrdiaphmqxliwfwmka.supabase.co";
 const SUPA_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5vcXJkaWFwaG1xeGxpd2Z3bWthIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIyOTk0MDEsImV4cCI6MjA4Nzg3NTQwMX0.pCmMyJwzNVRBttrLbHNQfXkJls3kZo4sVXkaOFypLzY";
 
 /* ─── Analytics helpers ─── */
-function track(event, params = {}) {
+function track(event, params = {}, posthog = null) {
   if (window.gtag) window.gtag("event", event, params);
   if (event === "store_click" && window.fbq) window.fbq("track", "Lead", { content_name: params.label });
   if (event === "waitlist_signup" && window.fbq) window.fbq("track", "CompleteRegistration");
+  if (posthog) posthog.capture(event, params);
 }
 
 /* ─── Waitlist Modal ─── */
-function Modal({ open, onClose, source }) {
+function Modal({ open, onClose, source, posthog }) {
   const [email, setEmail] = useState("");
   const [done, setDone] = useState(false);
   if (!open) return null;
   const submit = async () => {
     if (!email.includes("@")) return;
     setDone(true);
-    track("waitlist_signup", { label: "email" });
+    track("waitlist_signup", { label: "email", source }, posthog);
     const utm = new URLSearchParams(window.location.search).get("utm_content") || "";
     await fetch(`${SUPA_URL}/rest/v1/waitlist`, {
       method: "POST",
@@ -32,10 +34,14 @@ function Modal({ open, onClose, source }) {
       body: JSON.stringify({ email, source, utm_content: utm }),
     }).catch(() => {});
   };
+  const handleClose = () => {
+    if (posthog) posthog.capture("modal_closed", { source });
+    onClose();
+  };
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <div className="modal-overlay" onClick={handleClose}>
       <div className="modal" onClick={e => e.stopPropagation()}>
-        <button className="modal-close" onClick={onClose}>✕</button>
+        <button className="modal-close" onClick={handleClose}>✕</button>
         {!done ? (<>
           <div className="modal-icon">🎉</div>
           <h3>You're early</h3>
@@ -56,14 +62,18 @@ function Modal({ open, onClose, source }) {
 }
 
 /* ─── Store buttons ─── */
-function StoreBtns({ onClick }) {
+function StoreBtns({ onClick, posthog }) {
+  const handleClick = (platform) => {
+    if (posthog) posthog.capture("store_button_clicked", { platform });
+    onClick(platform);
+  };
   return (
     <div className="store-btns">
-      <button className="store-btn" onClick={() => onClick("ios")}>
+      <button className="store-btn" onClick={() => handleClick("ios")}>
         <svg width="22" height="22" viewBox="0 0 24 24" fill="#000"><path d="M17.05 20.28c-.98.95-2.05.88-3.08.4-1.09-.5-2.08-.48-3.24 0-1.44.62-2.2.44-3.06-.4C2.79 15.25 3.51 7.59 9.05 7.31c1.35.07 2.29.74 3.08.8 1.18-.24 2.31-.93 3.57-.84 1.51.12 2.65.72 3.4 1.8-3.12 1.87-2.38 5.98.48 7.13-.57 1.5-1.31 2.99-2.54 4.09zM12.03 7.25c-.15-2.23 1.66-4.07 3.74-4.25.29 2.58-2.34 4.5-3.74 4.25z"/></svg>
         <div><span className="store-label">Download on the</span><span className="store-name">App Store</span></div>
       </button>
-      <button className="store-btn" onClick={() => onClick("android")}>
+      <button className="store-btn" onClick={() => handleClick("android")}>
         <svg width="20" height="22" viewBox="0 0 24 24" fill="none"><path d="M3.609 1.814L13.792 12 3.61 22.186a.996.996 0 01-.61-.92V2.734a1 1 0 01.609-.92z" fill="#4285F4"/><path d="M17.556 8.247L5.124.697a1 1 0 00-1.015-.019l9.683 11.32 3.764-3.751z" fill="#EA4335"/><path d="M17.556 15.753l-3.764-3.751-9.683 11.32a1 1 0 001.015-.019l12.432-7.55z" fill="#34A853"/><path d="M21.39 12c0-.508-.271-.975-.708-1.23l-3.126-1.523-4.148 4.13 4.148 4.13 3.126-1.523c.437-.255.708-.722.708-1.23z" fill="#FBBC04"/></svg>
         <div><span className="store-label">Get it on</span><span className="store-name">Google Play</span></div>
       </button>
@@ -126,7 +136,15 @@ function Card({ icon, title, text }) {
 /* ═══════════════════ MAIN ═══════════════════ */
 export default function App() {
   const [modal, setModal] = useState(null);
-  const open = (src) => { track("store_click", { event_category: "conversion", label: src }); setModal(src); };
+  const posthog = usePostHog();
+  const open = (src) => {
+    track("store_click", { event_category: "conversion", label: src }, posthog);
+    setModal(src);
+  };
+  const navClick = () => {
+    posthog.capture("nav_download_clicked");
+    open("nav");
+  };
 
   return (<>
     <style>{`
@@ -288,7 +306,7 @@ export default function App() {
       }
     `}</style>
 
-    <Modal open={!!modal} source={modal} onClose={() => setModal(null)} />
+    <Modal open={!!modal} source={modal} onClose={() => setModal(null)} posthog={posthog} />
 
     <div className="wrap">
       {/* NAV */}
@@ -297,7 +315,7 @@ export default function App() {
           <div className="nav-logo-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="8" r="4"/><path d="M5.5 21c0-3.5 3-6 6.5-6s6.5 2.5 6.5 6"/></svg></div>
           AI Psychologist
         </div>
-        <button className="nav-cta" onClick={() => open("nav")}>Download free</button>
+        <button className="nav-cta" onClick={navClick}>Download free</button>
       </nav>
 
       {/* HERO */}
@@ -306,7 +324,7 @@ export default function App() {
           <div className="hero-badge"><div className="dot"/><span>Available 24/7 · Free to start</span></div>
           <h1>An AI psychologist<br/>that <em>remembers you</em></h1>
           <p className="hero-sub">Not a chatbot that resets every conversation. A psychologist that knows your patterns, your relationships, and your history — and uses it all to help you grow.</p>
-          <StoreBtns onClick={open} />
+          <StoreBtns onClick={open} posthog={posthog} />
           <p className="hero-free">Free · No credit card required</p>
         </div>
         <Phone />
@@ -349,7 +367,7 @@ export default function App() {
     <section className="final-cta">
       <h2>Your next argument is coming.<br/><em>Be ready.</em></h2>
       <p className="sub">Download free. Start building context today.</p>
-      <div style={{ display: "flex", justifyContent: "center" }}><StoreBtns onClick={open} /></div>
+      <div style={{ display: "flex", justifyContent: "center" }}><StoreBtns onClick={open} posthog={posthog} /></div>
       <p className="tiny">Free plan · 10 messages/day · Premium unlocks 70</p>
     </section>
 
@@ -357,9 +375,9 @@ export default function App() {
       <footer>
         <span>© 2026 AI Psychologist</span>
         <div className="footer-links">
-          <a href="#">Privacy Policy</a>
-          <a href="#">Terms of Service</a>
-          <a href="#">Contact</a>
+          <a href="#" onClick={() => posthog.capture("footer_link_clicked", { link: "privacy" })}>Privacy Policy</a>
+          <a href="#" onClick={() => posthog.capture("footer_link_clicked", { link: "terms" })}>Terms of Service</a>
+          <a href="#" onClick={() => posthog.capture("footer_link_clicked", { link: "contact" })}>Contact</a>
         </div>
       </footer>
     </div>
